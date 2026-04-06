@@ -2,4 +2,4 @@
 
 Contributers: tponnapa@calpoly.edu, jcroney@calpoly.edu, pmoschit@calpoly.edu, caso@calpoly.edu
 
-This API is a public record of NFL player statistics that tracks their performance data across games, seasons, and teams. Users can write game stat entries for individual players such as passing yards, rushing yards, receptions, touchdowns, etc. The data can be analyzed to see who the top performing players are for a specific game, season, etc.
+This API is a public record of NFL player combine statistics that tracks their performance data across events like the 40 yd dash, bench press, broad jump, etc. Users can write combine stat entries for individual players. The data can be analyzed to see who the players entered are similar too who are already in the NFL. This can be used to predict success based on if they have similar attributes to a star player.
