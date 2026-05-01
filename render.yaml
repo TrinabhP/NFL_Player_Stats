@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: central-coast-cauldrons
+    name: NFL_Player_Stats
     runtime: python
     plan: free
     autoDeploy: true
