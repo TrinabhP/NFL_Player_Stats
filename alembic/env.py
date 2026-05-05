@@ -1,8 +1,13 @@
 from logging.config import fileConfig
 import os
 
+from dotenv import find_dotenv, load_dotenv
 from sqlalchemy import engine_from_config, pool
 from alembic import context
+
+# Same order as src/config.py so Alembic uses the same POSTGRES_URI as the app.
+load_dotenv(dotenv_path="default.env", override=False)
+load_dotenv(dotenv_path=find_dotenv(".env"), override=True)
 
 # Alembic Config object
 config = context.config
@@ -11,7 +16,8 @@ config = context.config
 config.set_main_option(
     "sqlalchemy.url",
     os.getenv(
-        "POSTGRES_URI", "postgresql+psycopg://myuser:mypassword@localhost/mydatabase"
+        "POSTGRES_URI",
+        "postgresql+psycopg://myuser:mypassword@localhost:5432/nfl_player_stats",
     ),
 )
 
