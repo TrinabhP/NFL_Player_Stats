@@ -25,6 +25,13 @@ def reset():
                 """
             )
         )
+        connection.execute(
+            sqlalchemy.text(
+                """
+                TRUNCATE combine_stats
+                """
+            )
+        )
 
 
         
