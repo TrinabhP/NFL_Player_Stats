@@ -4,6 +4,8 @@ from starlette.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import SQLAlchemyError
 
 from src.api import players as players_routes
+from src.api import admin as admin
+from src.api import info as info
 
 description = """
 NFL combine prospect records: create and query players persisted in Postgres.
@@ -38,6 +40,8 @@ async def sqlalchemy_exception_handler(_request: Request, exc: SQLAlchemyError):
 
 
 app.include_router(players_routes.router)
+app.include_router(admin.router)
+app.include_router(info.router)
 
 
 @app.get("/")
