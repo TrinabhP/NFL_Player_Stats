@@ -1,7 +1,7 @@
 """create combine_stats table and add timestamps to Players
 
 Revision ID: e7fd91ac198f
-Revises: 4d0611273919
+Revises: b4419e82a611
 Create Date: 2026-05-09 11:02:59.333567
 
 """
@@ -13,7 +13,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'e7fd91ac198f'
-down_revision: Union[str, None] = '4d0611273919'
+down_revision: Union[str, None] = 'b4419e82a611'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
