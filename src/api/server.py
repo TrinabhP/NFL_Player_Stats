@@ -6,6 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from src.api import players as players_routes
 from src.api import admin as admin
 from src.api import info as info
+from src.api import combine as combine_routes
 
 description = """
 NFL combine prospect records: create and query players persisted in Postgres.
@@ -42,6 +43,7 @@ async def sqlalchemy_exception_handler(_request: Request, exc: SQLAlchemyError):
 app.include_router(players_routes.router)
 app.include_router(admin.router)
 app.include_router(info.router)
+app.include_router(combine_routes.router)
 
 
 @app.get("/")
