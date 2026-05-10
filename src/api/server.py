@@ -7,6 +7,7 @@ from src.api import players as players_routes
 from src.api import admin as admin
 from src.api import info as info
 from src.api import combine as combine_routes
+from src.api import stats as average_stats
 
 description = """
 NFL combine prospect records: create and query players persisted in Postgres.
@@ -44,7 +45,7 @@ app.include_router(players_routes.router)
 app.include_router(admin.router)
 app.include_router(info.router)
 app.include_router(combine_routes.router)
-
+app.include_router(average_stats.router)
 
 @app.get("/")
 async def root():
