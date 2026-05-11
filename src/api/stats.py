@@ -121,11 +121,11 @@ def get_top_colleges_overall(limit: int = Query(default=10, ge=1, le=100)):
         rows = connection.execute(
             sqlalchemy.text(
                 """
-                SELECT "Players".college, COUNT(*) AS Total_Players_Drafted
+                SELECT "Players".college, COUNT(*) AS total_players_drafted
                 FROM "Players"
                 WHERE "Players".status = 'DRAFTED'
                 GROUP BY "Players".college
-                ORDER BY Total_Players_Drafted DESC
+                ORDER BY total_players_drafted DESC
                 LIMIT :limit
                 """
             ), {"limit": limit}
@@ -134,7 +134,7 @@ def get_top_colleges_overall(limit: int = Query(default=10, ge=1, le=100)):
     return [
         {
             "college": r["college"],
-            "total_players_drafted": r["Total_Players_Drafted"]
+            "total_players_drafted": r["total_players_drafted"]
         }
         for r in rows
     ]
