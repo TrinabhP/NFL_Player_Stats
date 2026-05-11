@@ -121,7 +121,7 @@ def get_top_colleges_overall(limit: int = Query(default=10, ge=1, le=100)):
         rows = connection.execute(
             sqlalchemy.text(
                 """
-                SELECT Players.college, COUNT(*) AS Total_Players_Drafted
+                SELECT "Players".college, COUNT(*) AS Total_Players_Drafted
                 FROM "Players"
                 WHERE "Players".status = 'DRAFTED'
                 GROUP BY "Players".college
