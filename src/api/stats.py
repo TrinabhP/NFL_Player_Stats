@@ -125,7 +125,7 @@ def get_top_colleges_overall(limit: int = Query(default=10, ge=1, le=100)):
                 FROM Players
                 GROUP BY Players.college
                 HAVING Players.status = 'DRAFTED'
-                ORDER BY DESC
+                ORDER BY Total_Players_Drafted DESC
                 LIMIT :limit
                 """
             ), {"limit": limit}
