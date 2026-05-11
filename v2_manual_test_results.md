@@ -397,3 +397,175 @@ curl -X 'GET' \
   }
 ]
 ```
+
+---
+
+# Workflow 3 — Player Search
+
+**Goal.** Search and filter players by position, name, and combine stats with sorting.
+
+---
+
+## Step 1 — Search All Players (no filters)
+
+**1.** curl:
+
+```bash
+curl -X 'GET' \
+  'http://127.0.0.1:3000/players/search/' \
+  -H 'accept: application/json' \
+  -H 'access_token: brat'
+```
+
+**2.** Response:
+
+```json
+{
+  "previous": null,
+  "next": null,
+  "results": [
+    {
+      "player_id": "1",
+      "name": "Caleb So",
+      "position": "WR",
+      "college": "Cal Poly",
+      "draft_year": 2026,
+      "team": "Undrafted",
+      "forty_yard_dash": 4.41,
+      "bench_press_reps": 12
+    },
+    {
+      "player_id": "2",
+      "name": "Joe Croney",
+      "position": "QB",
+      "college": "Cal Poly",
+      "draft_year": 2026,
+      "team": "Undrafted",
+      "forty_yard_dash": 4.65,
+      "bench_press_reps": 18
+    },
+    {
+      "player_id": "3",
+      "name": "Trinabh Ponnapalli",
+      "position": "LB",
+      "college": "Cal Poly",
+      "draft_year": 2026,
+      "team": "Undrafted",
+      "forty_yard_dash": 4.52,
+      "bench_press_reps": 25
+    }
+  ]
+}
+```
+
+---
+
+## Step 2 — Filter by Position
+
+**1.** curl:
+
+```bash
+curl -X 'GET' \
+  'http://127.0.0.1:3000/players/search/?position=WR' \
+  -H 'accept: application/json' \
+  -H 'access_token: brat'
+```
+
+**2.** Response:
+
+```json
+{
+  "previous": null,
+  "next": null,
+  "results": [
+    {
+      "player_id": "1",
+      "name": "Caleb So",
+      "position": "WR",
+      "college": "Cal Poly",
+      "draft_year": 2026,
+      "team": "Undrafted",
+      "forty_yard_dash": 4.41,
+      "bench_press_reps": 12
+    }
+  ]
+}
+```
+
+---
+
+## Step 3 — Filter by 40-yard Dash Range, Sorted by Speed
+
+**1.** curl:
+
+```bash
+curl -X 'GET' \
+  'http://127.0.0.1:3000/players/search/?max_forty=4.6&sort_col=forty_yard_dash&sort_order=asc' \
+  -H 'accept: application/json' \
+  -H 'access_token: brat'
+```
+
+**2.** Response (players with 40-yard dash under 4.6, fastest first):
+
+```json
+{
+  "previous": null,
+  "next": null,
+  "results": [
+    {
+      "player_id": "1",
+      "name": "Caleb So",
+      "position": "WR",
+      "college": "Cal Poly",
+      "draft_year": 2026,
+      "team": "Undrafted",
+      "forty_yard_dash": 4.41,
+      "bench_press_reps": 12
+    },
+    {
+      "player_id": "3",
+      "name": "Trinabh Ponnapalli",
+      "position": "LB",
+      "college": "Cal Poly",
+      "draft_year": 2026,
+      "team": "Undrafted",
+      "forty_yard_dash": 4.52,
+      "bench_press_reps": 25
+    }
+  ]
+}
+```
+
+---
+
+## Step 4 — Partial Name Search
+
+**1.** curl:
+
+```bash
+curl -X 'GET' \
+  'http://127.0.0.1:3000/players/search/?name=joe' \
+  -H 'accept: application/json' \
+  -H 'access_token: brat'
+```
+
+**2.** Response (case-insensitive partial match):
+
+```json
+{
+  "previous": null,
+  "next": null,
+  "results": [
+    {
+      "player_id": "2",
+      "name": "Joe Croney",
+      "position": "QB",
+      "college": "Cal Poly",
+      "draft_year": 2026,
+      "team": "Undrafted",
+      "forty_yard_dash": 4.65,
+      "bench_press_reps": 18
+    }
+  ]
+}
+```

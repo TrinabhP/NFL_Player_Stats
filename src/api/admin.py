@@ -21,7 +21,7 @@ def reset():
         connection.execute(
             sqlalchemy.text(
                 """
-                TRUNCATE Players
+                TRUNCATE "Players"
                 """
             )
         )
