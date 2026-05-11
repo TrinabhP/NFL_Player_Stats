@@ -112,3 +112,30 @@ def get_top_performers(
         }
         for r in rows
     ]
+
+
+@router.get("/stats/top-colleges/")
+def get_top_colleges_overall(limit: int = Query(default=10, ge=1, le=100)):
+
+    with db.engine.begin() as connection:
+        rows = connection.execute(
+            sqlalchemy.text(
+                """
+                SELECT Players.college, COUNT(*) AS Total_Players_Drafted
+                FROM Players
+                GROUP BY Players.college
+                HAVING Players.status = 'DRAFTED'
+                ORDER BY DESC
+                LIMIT :limit
+                """
+            ), {"limit": limit}
+        ).mappings.all()
+
+    return [
+        {
+            "college": r["college"],
+            "total_players_drafted": r["Total_Players_Drafted"]
+        }
+        for r in rows
+    ]
+
