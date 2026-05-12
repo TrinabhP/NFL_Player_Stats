@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 from sqlalchemy.engine import Connection
 
+from src.api.admin import IDEAL_PLAYER_ID
 from src.api.auth import get_api_key
 from src import database as db
 
@@ -92,6 +93,27 @@ class SimilarPlayersResponse(BaseModel):
     similar_players: list[SimilarPlayerEntry]
 
 
+class PredictionBlock(BaseModel):
+    success_score: float
+    success_tier: str
+    projected_outcome: str
+    confidence: float
+
+
+class PredictionBasedOnEntry(BaseModel):
+    player_id: str
+    name: str
+    similarity_score: int
+
+
+class PlayerPredictionResponse(BaseModel):
+    player_id: str
+    name: str
+    position: str
+    prediction: PredictionBlock
+    based_on: list[PredictionBasedOnEntry]
+
+
 def _non_null_combine_measurements(row: dict[str, Any]) -> dict[str, float]:
     """create a non null valued dict of combine stats"""
     measurements: dict[str, float] = {}
@@ -106,9 +128,18 @@ def _similarity_score_between_profiles(
     anchor: dict[str, float],
     candidate: dict[str, float],
 ) -> float:
+    score, _ = _combine_pair_similarity_metrics(anchor, candidate)
+    return score
+
+
+def _combine_pair_similarity_metrics(
+    anchor: dict[str, float],
+    candidate: dict[str, float],
+) -> tuple[float, int]:
     """
     Compare two combine measurement dicts. For each metric present on both sides, accumulate squared relative error,
-    take RMS (root mean square), then ``100 / (1 + RMS)``. Higher is more similar, no overlap returns 0.0.
+    take RMS (root mean square), then ``100 / (1 + RMS)``. Higher is more similar, no overlap returns 0.0.     
+    RMS relative error score plus count of overlapping combine stat metrics actually used in that score.
     """
     squared_errors: list[float] = []
     for column in COMBINE_STATS_NUMERIC_COLUMNS:
@@ -120,11 +151,12 @@ def _similarity_score_between_profiles(
         relative_difference = (anchor_value - candidate_value) / denominator
         squared_errors.append(relative_difference**2)
 
-    if not squared_errors:
-        return 0.0
+    overlap_count = len(squared_errors)
+    if overlap_count == 0:
+        return 0.0, 0
 
-    rms = math.sqrt(sum(squared_errors) / len(squared_errors))
-    return 100.0 / (1.0 + rms)
+    rms = math.sqrt(sum(squared_errors) / overlap_count)
+    return 100.0 / (1.0 + rms), overlap_count
 
 
 def _fetch_player_with_combine(connection: Connection, player_id: int):
@@ -151,6 +183,97 @@ def _fetch_player_with_combine(connection: Connection, player_id: int):
         .mappings()
         .first()
     )
+
+
+def _player_combine_profile_or_raise(
+    connection: Connection,
+    *,
+    player_id: int,
+) -> dict[str, Any]:
+    """
+    Loads ``Players`` + combine row; raises 404 if missing or combine has only NULL numbers.
+    """
+    row = _fetch_player_with_combine(connection, player_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Player not found or has no combine stats",
+        )
+    profile = dict(row)
+    if not _non_null_combine_measurements(profile):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Insufficient combine measurements to compute similarity",
+        )
+    return profile
+
+
+def _prediction_vs_ideal_baseline(
+    *,
+    prospect_measurements: dict[str, float],
+    ideal_measurements: dict[str, float],
+    ideal_name: str,
+) -> tuple[PredictionBlock, list[PredictionBasedOnEntry]]:
+    """
+    ``success_score`` is combine similarity versus the baseline prospect (ideal row),
+    which is ideal metrics pulled from player_id 1's combine stats which are NFL averages for each metric
+    """
+    similarity_raw, overlap_count = _combine_pair_similarity_metrics(
+        ideal_measurements,
+        prospect_measurements,
+    )
+    similarity_int = int(round(similarity_raw))
+    success_score = round(similarity_raw, 1)
+
+    total_tracked = len(COMBINE_STATS_NUMERIC_COLUMNS)
+    confidence = round(overlap_count / total_tracked, 3)
+
+    if similarity_int >= 85:
+        tier = "elite_fit"
+    elif similarity_int >= 70:
+        tier = "above_average_fit"
+    elif similarity_int >= 55:
+        tier = "near_average_fit"
+    elif similarity_int >= 40:
+        tier = "below_average_fit"
+    else:
+        tier = "poor_fit"
+
+    # overlap_count = combine stat metrics non-null on BOTH sides, not "different column names on the schema".
+    if overlap_count == 0:
+        overlap_sentence = "No combine stats overlapped (nothing to compare)."
+    elif overlap_count >= total_tracked:
+        overlap_sentence = (
+            "Every tracked combine stat metric had values for both sides "
+            "(usual when the API posts a full combine payload and the baseline row is complete)."
+        )
+    else:
+        overlap_sentence = (
+            f"{overlap_count}/{total_tracked} Combine stat metrics had values on both profiles; "
+            "NULLs are skipped, so sparser cards compare on fewer events."
+        )
+
+    outcome = (
+        f"Compared to baseline prospect id {IDEAL_PLAYER_ID} ({ideal_name}). "
+        f"Higher scores mean the player's numbers sit proportionally closer to that profile. "
+        f"{overlap_sentence}"
+    )
+
+    prediction_block = PredictionBlock(
+        success_score=float(success_score),
+        success_tier=tier,
+        projected_outcome=outcome,
+        confidence=confidence,
+    )
+    based_on = [
+        PredictionBasedOnEntry(
+            player_id=str(IDEAL_PLAYER_ID),
+            name=ideal_name,
+            similarity_score=similarity_int,
+        ),
+    ]
+
+    return prediction_block, based_on
 
 
 def _fetch_similarity_candidates(
@@ -399,21 +522,10 @@ def get_similar_players(
         )
 
     with db.engine.begin() as connection:
-        anchor_row = _fetch_player_with_combine(connection, player_id)
-
-        if anchor_row is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Player not found or has no combine stats",
-            )
-
-        anchor_dict = dict(anchor_row)
-        anchor_combine = _non_null_combine_measurements(anchor_dict)
-        if not anchor_combine:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Insufficient combine measurements to compute similarity",
-            )
+        anchor_dict = _player_combine_profile_or_raise(
+            connection,
+            player_id=player_id,
+        )
 
         candidate_rows = _fetch_similarity_candidates(
             connection,
@@ -431,6 +543,52 @@ def get_similar_players(
         name=str(anchor_dict["name"]),
         position=str(anchor_dict["position"]),
         similar_players=similar_players,
+    )
+
+
+@router.get("/players/{player_id}/prediction", response_model=PlayerPredictionResponse)
+def get_player_prediction(
+    player_id: int,
+    _: str = Depends(get_api_key),
+) -> PlayerPredictionResponse:
+    """
+    Single reference compare: overlap combine metrics versus baseline player ``IDEAL_PLAYER_ID``
+    seeded by ``POST /admin/reset``.
+    """
+    with db.engine.begin() as connection:
+        prospect_dict = _player_combine_profile_or_raise(
+            connection,
+            player_id=player_id,
+        )
+        prospect_combine = _non_null_combine_measurements(prospect_dict)
+
+        baseline_row = _fetch_player_with_combine(connection, IDEAL_PLAYER_ID)
+        if baseline_row is None:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Baseline compare player(id={IDEAL_PLAYER_ID}) missing; run POST /admin/reset",
+            )
+
+        baseline_dict = dict(baseline_row)
+        baseline_combine = _non_null_combine_measurements(baseline_dict)
+        if not baseline_combine:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"Baseline player id={IDEAL_PLAYER_ID} has no usable combine measurements",
+            )
+
+    prediction_block, based_on = _prediction_vs_ideal_baseline(
+        prospect_measurements=prospect_combine,
+        ideal_measurements=baseline_combine,
+        ideal_name=str(baseline_dict["name"]),
+    )
+
+    return PlayerPredictionResponse(
+        player_id=str(prospect_dict["id"]),
+        name=str(prospect_dict["name"]),
+        position=str(prospect_dict["position"]),
+        prediction=prediction_block,
+        based_on=based_on,
     )
 
 
