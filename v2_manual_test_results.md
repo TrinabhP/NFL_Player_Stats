@@ -569,3 +569,94 @@ curl -X 'GET' \
   ]
 }
 ```
+
+---
+
+# Workflow 4 — Similar players & prediction (baseline `player_id = 1`)
+
+**Goal.** Exercise **`GET /players/{player_id}/similar`** and **`GET /players/{player_id}/prediction`**.
+
+**Prerequisites.** Same DB as Workflows 2–3 (multiple players with **`combine_stats`**).
+
+**Baseline note.** Prediction compares to **`player_id` 1** ( **`IDEAL_PLAYER_ID`** ). After **`POST /admin/reset`**, that row is the **“NFL Combine Average”**. Without reset, **`1`** is the first player you created (e.g. Caleb So here)—still valid; scores are “vs whoever holds id 1.”
+
+---
+
+## Step 1 — Similar players (`GET /players/2/similar`)
+
+**1.** curl:
+
+```bash
+curl -X 'GET' \
+  'http://127.0.0.1:3000/players/2/similar?limit=5&position_only=false' \
+  -H 'accept: application/json' \
+  -H 'access_token: brat'
+```
+
+Query params (all optional): **`limit`** (default `10`, max `50`), **`position_only`**, **`draft_year_min`**, **`draft_year_max`**.
+
+**2.** Response (shape; order and **`similarity_score`** depend on DB):
+
+```json
+{
+  "player_id": "2",
+  "name": "Joe Croney",
+  "position": "QB",
+  "similar_players": [
+    {
+      "player_id": "3",
+      "name": "Trinabh Ponnapalli",
+      "position": "LB",
+      "team": "Undrafted",
+      "draft_year": 2026,
+      "similarity_score": 87
+    },
+    {
+      "player_id": "1",
+      "name": "Caleb So",
+      "position": "WR",
+      "team": "Undrafted",
+      "draft_year": 2026,
+      "similarity_score": 72
+    }
+  ]
+}
+```
+
+---
+
+## Step 2 — Prediction vs baseline (`GET /players/2/prediction`)
+
+**1.** curl:
+
+```bash
+curl -X 'GET' \
+  'http://127.0.0.1:3000/players/2/prediction' \
+  -H 'accept: application/json' \
+  -H 'access_token: brat'
+```
+
+**2.** Response (shape; numbers vary):
+
+```json
+{
+  "player_id": "2",
+  "name": "Joe Croney",
+  "position": "QB",
+  "prediction": {
+    "success_score": 76.4,
+    "success_tier": "above_average_fit",
+    "projected_outcome": "Compared to baseline prospect id 1 (...). Higher scores mean...",
+    "confidence": 1.0
+  },
+  "based_on": [
+    {
+      "player_id": "1",
+      "name": "Caleb So",
+      "similarity_score": 76
+    }
+  ]
+}
+```
+
+**404** if the requested player is missing or has no usable combine stats; **503** if baseline **`id=1`** is missing or has no combine (run **`POST /admin/reset`** to seed baseline **`id=1`**).
