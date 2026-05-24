@@ -96,42 +96,23 @@ def update_combine_stats(
     body: CombineStats,
     _: str = Depends(get_api_key),
 ):
+    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if not updates:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No fields provided. Include at least one combine stat to update.",
+        )
+
+    set_clause = ", ".join(f"{col} = :{col}" for col in updates)
+    updates["pid"] = player_id
+
     with db.engine.begin() as connection:
         _require_player(connection, player_id)
         updated = connection.execute(
             sqlalchemy.text(
-                """
-                UPDATE combine_stats SET
-                    height_inches = :height,
-                    weight_lbs = :weight,
-                    hand_size_inches = :hand,
-                    arm_length_inches = :arm,
-                    wingspan_inches = :wing,
-                    forty_yard_dash = :forty,
-                    ten_yard_split = :ten,
-                    twenty_yard_shuttle = :shuttle,
-                    three_cone = :cone,
-                    vertical_jump_inches = :vertical,
-                    broad_jump_inches = :broad,
-                    bench_press_reps = :bench
-                WHERE player_id = :pid
-                """
+                f"UPDATE combine_stats SET {set_clause} WHERE player_id = :pid"
             ),
-            {
-                "pid": player_id,
-                "height": body.height_inches,
-                "weight": body.weight_lbs,
-                "hand": body.hand_size_inches,
-                "arm": body.arm_length_inches,
-                "wing": body.wingspan_inches,
-                "forty": body.forty_yard_dash,
-                "ten": body.ten_yard_split,
-                "shuttle": body.twenty_yard_shuttle,
-                "cone": body.three_cone,
-                "vertical": body.vertical_jump_inches,
-                "broad": body.broad_jump_inches,
-                "bench": body.bench_press_reps,
-            },
+            updates,
         )
         if updated.rowcount == 0:
             raise HTTPException(

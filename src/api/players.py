@@ -592,6 +592,23 @@ def get_player_prediction(
     )
 
 
+@router.delete("/players/{player_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_player(
+    player_id: int,
+    _: str = Depends(get_api_key),
+):
+    with db.engine.begin() as connection:
+        result = connection.execute(
+            sqlalchemy.text('DELETE FROM "Players" WHERE id = :id'),
+            {"id": player_id},
+        )
+        if result.rowcount == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Player not found",
+            )
+
+
 @router.get("/players/{player_id}", response_model=PlayerResponse)
 def get_player(
     player_id: int,

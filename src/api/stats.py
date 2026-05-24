@@ -19,10 +19,27 @@ VALID_EVENTS = {
 # Lower is better for timed events; higher is better for everything else.
 LOWER_IS_BETTER = {"forty_yard_dash", "three_cone", "twenty_yard_shuttle"}
 
+# Exclude the seeded baseline player from all statistical queries.
+BASELINE_PLAYER_ID = 1
+
 
 class PositionAverages(BaseModel):
     position: str
     averages: dict
+
+
+class TopPerformerEntry(BaseModel):
+    player_id: str
+    name: str
+    position: str
+    draft_year: int
+    event_name: str
+    value: float
+
+
+class TopCollegeEntry(BaseModel):
+    college: str
+    total_players_drafted: int
 
 
 @router.get("/stats/positions/{position}", response_model=PositionAverages)
@@ -46,9 +63,10 @@ def get_position_averages(
                 FROM combine_stats c
                 JOIN "Players" p ON p.id = c.player_id
                 WHERE LOWER(p.position) = LOWER(:position)
+                  AND p.id != :baseline_id
                 """
             ),
-            {"position": position},
+            {"position": position, "baseline_id": BASELINE_PLAYER_ID},
         ).mappings().first()
 
     # AVG on an empty set returns NULL rather than no row, so we also check
@@ -65,13 +83,13 @@ def get_position_averages(
     )
 
 
-@router.get("/stats/top-performers/{event_name}")
+@router.get("/stats/top-performers/{event_name}", response_model=list[TopPerformerEntry])
 def get_top_performers(
     event_name: str,
     limit: int = Query(default=10, ge=1, le=100),
     position: str | None = Query(default=None),
     _: str = Depends(get_api_key),
-):
+) -> list[TopPerformerEntry]:
     if event_name not in VALID_EVENTS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -94,29 +112,33 @@ def get_top_performers(
                 FROM combine_stats c
                 JOIN "Players" p ON p.id = c.player_id
                 WHERE c.{event_name} IS NOT NULL
+                  AND p.id != :baseline_id
                 {position_filter}
                 ORDER BY c.{event_name} {order}
                 LIMIT :limit
                 """
             ),
-            {"limit": limit, "position": position},
+            {"limit": limit, "position": position, "baseline_id": BASELINE_PLAYER_ID},
         ).mappings().all()
 
     return [
-        {
-            "player_id": str(r["player_id"]),
-            "name": r["name"],
-            "position": r["position"],
-            "draft_year": r["draft_year"],
-            "value": float(r["value"]),
-        }
+        TopPerformerEntry(
+            player_id=str(r["player_id"]),
+            name=r["name"],
+            position=r["position"],
+            draft_year=r["draft_year"],
+            event_name=event_name,
+            value=float(r["value"]),
+        )
         for r in rows
     ]
 
 
-@router.get("/stats/top-colleges/")
-def get_top_colleges_overall(limit: int = Query(default=10, ge=1, le=100)):
-
+@router.get("/stats/top-colleges/", response_model=list[TopCollegeEntry])
+def get_top_colleges_overall(
+    limit: int = Query(default=10, ge=1, le=100),
+    _: str = Depends(get_api_key),
+) -> list[TopCollegeEntry]:
     with db.engine.begin() as connection:
         rows = connection.execute(
             sqlalchemy.text(
@@ -132,10 +154,10 @@ def get_top_colleges_overall(limit: int = Query(default=10, ge=1, le=100)):
         ).mappings().all()
 
     return [
-        {
-            "college": r["college"],
-            "total_players_drafted": r["total_players_drafted"]
-        }
+        TopCollegeEntry(
+            college=r["college"],
+            total_players_drafted=r["total_players_drafted"],
+        )
         for r in rows
     ]
 
