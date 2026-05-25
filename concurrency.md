@@ -120,21 +120,7 @@ Scout 2's INSERT hits the unique constraint and crashes with a raw DB error inst
 
 ### Sequence Diagram
 
-```mermaid
-sequenceDiagram
-    participant S1 as Scout 1 (Client A)
-    participant DB as API / Database
-    participant S2 as Scout 2 (Client B)
-
-    S1->>DB: SELECT id FROM combine_stats WHERE player_id = 42
-    DB-->>S1: (empty, no row)
-    S2->>DB: SELECT id FROM combine_stats WHERE player_id = 42
-    DB-->>S2: (empty, no row)
-    S1->>DB: INSERT INTO combine_stats (player_id = 42, ...)
-    DB-->>S1: OK (commit)
-    S2->>DB: INSERT INTO combine_stats (player_id = 42, ...)
-    DB-->>S2: ERROR: unique constraint violation, HTTP status code 500
-```
+![Case 2 sequence diagram](images/case2-sequence-diagram.jpg)
 
 ---
 
@@ -196,33 +182,22 @@ Client A fetches page 2 (OFFSET 5 LIMIT 5) and receives rows 6-7, which starts w
 
 ### Sequence Diagram
 
-```mermaid
-sequenceDiagram
-    participant C as Client A
-    participant DB as API / Database
-    participant W as Client B (Insert Request)
-
-    C->>DB: GET /players/search/?search_page=1 (OFFSET 0 LIMIT 5)
-    DB-->>C: Aaron Donald, Cooper Kupp, Jalen Ramsey, Matthew Stafford, Odell Beckham
-    W->>DB: INSERT player "AJ Green" (sorts between Aaron Donald and Cooper Kupp)
-    DB-->>W: OK (commit)
-    C->>DB: GET /players/search/?search_page=2 (OFFSET 5 LIMIT 5)
-    DB-->>C: Odell Beckham (duplicate), Tyler Higbee
-```
+![Case 3 sequence diagram](images/case3-sequence-diagram.jpg)
 
 ---
 
 ### What I would add to isolate this case
 
-Switch from offset-based pagination to **keyset (cursor) pagination**. Instead of `OFFSET`, the client passes the `id` of the last seen player and the query uses `WHERE p.id > :last_seen_id`. Because the cursor is tied to a stable row value rather than a positional offset, inserts and deletes do not shift the window:
+Switch from offset-based pagination to **keyset (cursor) pagination**. Instead of `OFFSET`, the client passes the `name` and `id` of the last seen player and the query uses `WHERE p.name > :last_seen_name OR (p.name = :last_seen_name AND p.id > :last_seen_id)`. Because the cursor is tied to a stable row value rather than a positional offset, inserts and deletes do not shift the window:
 
 ```sql
 SELECT p.id, p.name, ...
 FROM "Players" p
 LEFT JOIN combine_stats c ON c.player_id = p.id
-WHERE p.id > :last_seen_id
-ORDER BY p.id ASC
+WHERE p.name > :last_seen_name
+   OR (p.name = :last_seen_name AND p.id > :last_seen_id)
+ORDER BY p.name ASC, p.id ASC
 LIMIT :limit;
 ```
 
-This does not require changing the isolation level. It eliminates the phantom by making the pagination anchor stable rather than position-dependent.
+The cursor is a `(name, id)` pair. The primary sort is by name; `id` is only a tiebreaker for players who share the same name. The size of `id` does not matter since it never drives the sort order on its own. This does not require changing the isolation level. It eliminates the phantom by making the pagination anchor stable rather than position-dependent.
