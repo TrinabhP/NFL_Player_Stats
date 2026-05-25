@@ -183,7 +183,10 @@ The API calls are typically made in this sequence when comparing a player:
 Get Player Combine Stats
 Compare Player to Similar Players
 Get Prediction
-2.1. Compare Player to Similar Players - /players/{player_id}/similar (GET)
+2.1. (COMPLEX ENDPOINT #1) Compare Player to Similar Players - /players/{player_id}/similar (GET)
+- fetches all other players with combine data and runs a pairwise similarity algorithm
+- score is computed using up to 12 combine metrics
+- outputs a similarity score based on this calculated data
 
 Finds players in the database with combine stats and attributes most similar to the selected player.
 
@@ -211,7 +214,11 @@ Response:
 }
 ]
 }
-2.2. Get Prediction - /players/{player_id}/prediction (GET)
+2.2. (COMPLEX ENDPOINT #2) Get Prediction - /players/{player_id}/prediction (GET)
+- compares the player against a "baseline" player using the similarity algorithm
+- The 5 success tiers and their score threshold is used
+- How confidence is computed is using these 12 metrics
+- The projected outcome in the response is an explanation of the comparison
 
 Returns a prediction for how successful a player may be based on combine results and similarity to other NFL players.
 
