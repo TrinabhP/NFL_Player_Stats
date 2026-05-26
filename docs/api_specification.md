@@ -16,11 +16,14 @@ The API calls are typically made in this sequence when entering and viewing play
 
 ## 6. Compare Players
 
-## 7. Find Similar Players
+## 7. Find Similar Players ()
 
 ## 8. Aggregate Stats
 
 ## 9. Find Best Colleges that Produce Most NFL Prospects
+
+## Complex Endpoints: 
+   ## Endpoint 2.1, Compare player to similar players and endpoint 2.2, get prediction are our 2 complex endpoints.
 
 Get Players
 Create Player
