@@ -37,18 +37,18 @@ Of 700,000 players, **300,000 (~43%) have combine_stats rows**. The combine is a
 
 | Endpoint | Method | Sample Parameters | Time (ms) |
 |---|---|---|---|
-| `GET /players/{player_id}` | GET | player_id=2 | |
-| `DELETE /players/{player_id}` | DELETE | player_id=2 | |
-| `POST /players/` | POST | new player body | |
-| `GET /players/search/` | GET | no filters | |
-| `GET /players/search/` | GET | position=WR, sort_col=forty_yard_dash | |
-| `GET /players/{player_id}/similar` | GET | player_id=2, limit=10 | |
-| `GET /players/{player_id}/similar` | GET | player_id=2, position_only=true | |
-| `GET /players/{player_id}/prediction` | GET | player_id=2 | |
-| `GET /stats/positions/{position}` | GET | position=QB | |
-| `GET /stats/top-performers/{event}` | GET | event=forty_yard_dash | |
-| `GET /stats/top-colleges/` | GET | — | |
-| `GET /info/summary` | GET | — | |
+| `GET /players/{player_id}` | GET | player_id=2 | 12.00 ms |
+| `DELETE /players/{player_id}` | DELETE | player_id=2 | 15.70 ms |
+| `POST /players/` | POST | new player body | 9.81 ms |
+| `GET /players/search/` | GET | no filters | 190.65 ms |
+| `GET /players/search/` | GET | position=WR, sort_col=forty_yard_dash | 155.64 ms |
+| `GET /players/{player_id}/similar` | GET | player_id=2, limit=10 | 11001.46 ms |
+| `GET /players/{player_id}/similar` | GET | player_id=2, position_only=true | 95.03 ms |
+| `GET /players/{player_id}/prediction` | GET | player_id=2 | 5.82 ms |
+| `GET /stats/positions/{position}` | GET | position=QB | 118.65 ms |
+| `GET /stats/top-performers/{event}` | GET | event=forty_yard_dash | 42.52 ms |
+| `GET /stats/top-colleges/` | GET | — | 81.18 ms |
+| `GET /info/summary` | GET | — | 0.79 ms |
 
 **Slowest endpoint:** `GET /players/{player_id}/similar`
 
@@ -95,20 +95,39 @@ FROM "Players" p
 INNER JOIN combine_stats c ON c.player_id = p.id
 WHERE p.id != 2;
 
-[paste EXPLAIN ANALYZE output here]
+Explain Analyze Output:
+
+```sql
+Merge Join  (cost=3.85..46449.57 rows=300002 width=99) (actual time=0.097..319.487 rows=300001.00 loops=1)
+  Merge Cond: (p.id = c.player_id)
+  Buffers: shared hit=15951
+"  ->  Index Scan using ""Players_pkey"" on ""Players"" p  (cost=0.42..28290.46 rows=700001 width=28) (actual time=0.053..168.406 rows=700001.00 loops=1)"
+        Filter: (id <> 2)
+        Rows Removed by Filter: 1
+        Index Searches: 1
+        Buffers: shared hit=10290
+  ->  Index Scan using combine_stats_player_id_key on combine_stats c  (cost=0.42..12660.45 rows=300002 width=75) (actual time=0.036..75.744 rows=300002.00 loops=1)
+        Index Searches: 1
+        Buffers: shared hit=5661
+Planning:
+  Buffers: shared hit=16
+Planning Time: 1.064 ms
+Execution Time: 328.553 ms
 ```
 
 ### What the EXPLAIN output shows
 
-*Fill in after running EXPLAIN. Look for:*
-- **Seq Scan on combine_stats** — no useful index for the join or position filter
-- **Seq Scan on "Players"** — no index filtering by position/draft_year
-- **Hash Join** — likely the join strategy with 300K rows
-- Estimated vs actual rows — check if the planner is off
+- **Merge Join**, not a hash join — Postgres merges two index-ordered streams on `p.id = c.player_id`.
+- **Index Scan on `Players_pkey`** — walks all ~700K player rows and applies `id <> 2` as a filter (removes 1 row). No position or draft-year predicate is present, so none of the new indexes can be used here.
+- **Index Scan on `combine_stats_player_id_key`** — reads all ~300K combine rows via the existing unique constraint index. There are no sequential scans on either table.
+- **Row estimates are accurate** — planner predicted ~300K rows; actual count is 300,001.
+- **~329 ms execution time**, with all buffers served from cache (`shared hit=15951`).
 
-*The two main sources of slowness are:*
-1. **Full table scan**: every combine_stats row (300K) must be read from disk regardless of filters.
-2. **Python-side computation**: all 300K rows are fetched into Python for pairwise similarity; no work is pushed into SQL.
+The bottleneck is **row volume**, not a missing join index. This query always materializes nearly every combine_stats row. The optional filters (`position_only`, draft-year range) are what would benefit from Indexes 1 and 2, but the baseline EXPLAIN above does not include them.
+
+The endpoint remains slow overall because:
+1. **~300K rows are returned to the application** on every similar-player request (with default filters).
+2. **Similarity scoring and sorting happen in Python** — O(n) comparisons plus O(n log n) sort — which dominates end-to-end latency beyond the ~250–330 ms DB time.
 
 ### Index 1 — speed up position_only filter
 
@@ -122,7 +141,21 @@ ON "Players" (LOWER(position));
 ### EXPLAIN ANALYZE after index 1
 
 ```sql
-[paste EXPLAIN ANALYZE output here after adding the index]
+Merge Join  (cost=3.85..46449.57 rows=300002 width=99) (actual time=0.139..274.845 rows=300001.00 loops=1)
+  Merge Cond: (p.id = c.player_id)
+  Buffers: shared hit=15951
+"  ->  Index Scan using ""Players_pkey"" on ""Players"" p  (cost=0.42..28290.46 rows=700001 width=28) (actual time=0.084..144.176 rows=700001.00 loops=1)"
+        Filter: (id <> 2)
+        Rows Removed by Filter: 1
+        Index Searches: 1
+        Buffers: shared hit=10290
+  ->  Index Scan using combine_stats_player_id_key on combine_stats c  (cost=0.42..12660.45 rows=300002 width=75) (actual time=0.049..60.363 rows=300002.00 loops=1)
+        Index Searches: 1
+        Buffers: shared hit=5661
+Planning:
+  Buffers: shared hit=16
+Planning Time: 1.662 ms
+Execution Time: 283.338 ms
 ```
 
 ### Index 2 — speed up draft_year range filters
@@ -137,7 +170,21 @@ ON "Players" (draft_year);
 ### EXPLAIN ANALYZE after index 2
 
 ```sql
-[paste EXPLAIN ANALYZE output here after adding the index]
+Merge Join  (cost=3.85..46449.57 rows=300002 width=99) (actual time=0.083..279.440 rows=300001.00 loops=1)
+  Merge Cond: (p.id = c.player_id)
+  Buffers: shared hit=15951
+"  ->  Index Scan using ""Players_pkey"" on ""Players"" p  (cost=0.42..28290.46 rows=700001 width=28) (actual time=0.051..148.062 rows=700001.00 loops=1)"
+        Filter: (id <> 2)
+        Rows Removed by Filter: 1
+        Index Searches: 1
+        Buffers: shared hit=10290
+  ->  Index Scan using combine_stats_player_id_key on combine_stats c  (cost=0.42..12660.45 rows=300002 width=75) (actual time=0.028..59.376 rows=300002.00 loops=1)
+        Index Searches: 1
+        Buffers: shared hit=5661
+Planning:
+  Buffers: shared hit=16
+Planning Time: 0.996 ms
+Execution Time: 288.370 ms
 ```
 
 ### Index 3 — speed up the search endpoint join
@@ -152,9 +199,27 @@ ON combine_stats (forty_yard_dash, bench_press_reps);
 ### Final EXPLAIN ANALYZE
 
 ```sql
-[paste final EXPLAIN ANALYZE output here]
+Merge Join  (cost=3.85..46449.57 rows=300002 width=99) (actual time=0.079..246.564 rows=300001.00 loops=1)
+  Merge Cond: (p.id = c.player_id)
+  Buffers: shared hit=15951
+"  ->  Index Scan using ""Players_pkey"" on ""Players"" p  (cost=0.42..28290.46 rows=700001 width=28) (actual time=0.048..126.545 rows=700001.00 loops=1)"
+        Filter: (id <> 2)
+        Rows Removed by Filter: 1
+        Index Searches: 1
+        Buffers: shared hit=10290
+  ->  Index Scan using combine_stats_player_id_key on combine_stats c  (cost=0.42..12660.45 rows=300002 width=75) (actual time=0.027..52.749 rows=300002.00 loops=1)
+        Index Searches: 1
+        Buffers: shared hit=5661
+Planning:
+  Buffers: shared hit=16
+Planning Time: 0.817 ms
+Execution Time: 254.458 ms
 ```
 
 ### Result
 
-*Describe whether execution time reached an acceptable level and, if not, what additional tuning was done.*
+Adding all three indexes did not materially change the plan for the unfiltered similar players query — execution time moved from ~329 ms (baseline) to ~254 ms (final), within normal run to run variance. The plan still uses `Players_pkey` and `combine_stats_player_id_key`; none of the new indexes appear because the test query lacks position and draft year predicates, and Index 3 targets the search endpoint rather than this one.
+
+The indexes are still worthwhile for filtered calls: `idx_players_position_lower` should reduce rows when `position_only=true`, and `idx_players_draft_year` should help draft year range filters. `idx_combine_forty_bench` may improve `GET /players/search/` when filtering on forty yard dash or bench press.
+
+**Verdict:** DB query time (~250–330 ms) is reasonable for returning 300K rows, but the endpoint is still the slowest because the application fetches and scores every candidate in Python. Indexes alone do not make `/similar` acceptably fast at full scale. Meaningful further gains would require pushing work into SQL (e.g., limiting candidates before fetch), pre filtering aggressively, or replacing the brute force similarity loop with a smaller candidate set or approximate nearest-neighbor approach.
